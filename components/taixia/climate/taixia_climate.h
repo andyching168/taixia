@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/automation.h"  // 新增這行
 #include "esphome/components/climate/climate.h"
 #include "../taixia.h"
 
@@ -37,10 +38,11 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   void set_supported_humidity(bool feature) { this->supported_humidity_ = feature; }
 
   void set_taixia_parent(TaiXia *parent) { this->parent_ = parent; }
-  // 新增：設定關機時的自訂 action callback
-  void set_turn_off_action(std::function<void()> &&f) { this->turn_off_action_ = f; }
+  
+  // 新增：取得 turn off trigger
+  Trigger<> *get_turn_off_trigger() const { return this->turn_off_trigger_; }
 
- protected:  // <-- protected 關鍵字要在這裡
+ protected:
   void control(const climate::ClimateCall &call) override;
 
   TaiXia *parent_;
@@ -63,8 +65,8 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
 
   void handle_response(std::vector<uint8_t> &response) override;
   
-  // 新增：關機 action callback（放在 protected 成員變數區）
-  optional<std::function<void()>> turn_off_action_{};
+  // 新增：turn off trigger
+  Trigger<> *turn_off_trigger_{new Trigger<>()};
 };
 
 }  // namespace taixia
