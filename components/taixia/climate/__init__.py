@@ -18,7 +18,7 @@ from esphome.components.climate import (
     ClimateSwingMode
 )
 from .. import taixia_ns, CONF_TAIXIA_ID, CONF_SA_ID, TaiXia
-
+from esphome import automation  # 新增這行
 DEFAULT_MIN_TEMPERATURE = 16.0
 DEFAULT_MAX_TEMPERATURE = 35.0
 DEFAULT_TEMPERATURE_STEP = 1.0
@@ -76,7 +76,7 @@ OPTIONS_SWING_MODES = [
     "HORIZONTAL",
     "BOTH"
 ]
-
+CONF_ON_TURN_OFF = "on_turn_off"  # 新增這行
 CONFIG_SCHEMA = cv.All(
     climate.climate_schema(TaiXiaClimate).extend(
         {
@@ -98,6 +98,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(
                 cv.enum(SUPPORTED_CLIMATE_PRESET_OPTIONS, upper=True)
             ),
+            cv.Optional(CONF_ON_TURN_OFF): automation.validate_automation(single=True),  # 新增這行
             cv.Optional(CONF_SUPPORTED_HUMIDITY, default=False): bool
         }
     ).extend(cv.polling_component_schema("30s"))
@@ -141,6 +142,10 @@ async def to_code(config):
         cg.add(var.set_supported_preset_modes(config[CONF_SUPPORTED_PRESETS]))
     if CONF_SUPPORTED_HUMIDITY in config:
         cg.add(var.set_supported_humidity(config[CONF_SUPPORTED_HUMIDITY]))
-
+    # 新增：處理 on_turn_off action
+    if CONF_ON_TURN_OFF in config:
+        await automation.build_automation(
+            var.get_turn_off_trigger(), [], config[CONF_ON_TURN_OFF]
+        )
     cg.add(taixia.register_listener(var))
     cg.add(var.set_taixia_parent(taixia))
