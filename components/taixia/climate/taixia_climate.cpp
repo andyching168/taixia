@@ -83,9 +83,12 @@ using namespace esphome::climate;
     if (call.get_mode().has_value()) {
         this->mode = *call.get_mode();
         if (this->mode == CLIMATE_MODE_OFF) {
-            if (this->turn_off_action_.has_value()) {
-              ESP_LOGD(TAG, "Executing custom turn_off_action instead of TaiSEIA power off");
-              (*this->turn_off_action_)();
+            // 新增：觸發 turn_off trigger
+            ESP_LOGD(TAG, "Triggering turn_off automation");
+            this->turn_off_trigger_->trigger();
+            
+            // 如果 trigger 有被設定（有 automation），就不執行原本的關機邏輯
+            if (this->turn_off_trigger_->has_automation()) {
               this->publish_state();
               return;  // 直接返回，不執行後續的 TaiSEIA 關機指令
             }
