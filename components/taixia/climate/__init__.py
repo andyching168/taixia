@@ -158,3 +158,4 @@ async def to_code(config):
 
     cg.add(taixia.register_listener(var))
     cg.add(var.set_taixia_parent(taixia))
+    cg.add(var.set_override_turn_off(True))
