@@ -84,13 +84,15 @@ using namespace esphome::climate;
         this->mode = *call.get_mode();
         if (this->mode == CLIMATE_MODE_OFF) {
             // 新增：觸發 turn_off trigger
+            // 觸發 turn_off automation
             ESP_LOGD(TAG, "Triggering turn_off automation");
             this->turn_off_trigger_->trigger();
             
-            // 如果 trigger 有被設定（有 automation），就不執行原本的關機邏輯
-            if (this->turn_off_trigger_->has_automation()) {
+            // 如果有設定 on_turn_off（override_turn_off_ == true），就不執行原本的關機邏輯
+            if (this->override_turn_off_) {
+              ESP_LOGD(TAG, "Override enabled, skipping TaiSEIA power off command");
               this->publish_state();
-              return;  // 直接返回，不執行後續的 TaiSEIA 關機指令
+              return;
             }
             if (this->sa_id_ == 14)
               command[2] = WRITE | SERVICE_ID_ERV_STATUS;
