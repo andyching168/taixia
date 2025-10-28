@@ -151,10 +151,9 @@ async def to_code(config):
     if CONF_SUPPORTED_HUMIDITY in config:
         cg.add(var.set_supported_humidity(config[CONF_SUPPORTED_HUMIDITY]))
 
-    # 新增：處理 on_turn_off action
     if CONF_ON_TURN_OFF in config:
         await automation.build_automation(
-            var.set_turn_off_action, [], config[CONF_ON_TURN_OFF]
+            var.get_turn_off_trigger(), [], config[CONF_ON_TURN_OFF]
         )
 
     cg.add(taixia.register_listener(var))
