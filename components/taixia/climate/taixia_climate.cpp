@@ -83,6 +83,12 @@ using namespace esphome::climate;
     if (call.get_mode().has_value()) {
         this->mode = *call.get_mode();
         if (this->mode == CLIMATE_MODE_OFF) {
+            if (this->turn_off_action_.has_value()) {
+              ESP_LOGD(TAG, "Executing custom turn_off_action instead of TaiSEIA power off");
+              (*this->turn_off_action_)();
+              this->publish_state();
+              return;  // 直接返回，不執行後續的 TaiSEIA 關機指令
+            }
             if (this->sa_id_ == 14)
               command[2] = WRITE | SERVICE_ID_ERV_STATUS;
             else
