@@ -3,7 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
-#include "esphome/core/automation.h"  // 新增這行
+#include "esphome/core/automation.h"
 #include "esphome/components/climate/climate.h"
 #include "../taixia.h"
 
@@ -39,8 +39,11 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
 
   void set_taixia_parent(TaiXia *parent) { this->parent_ = parent; }
   
-  // 新增：取得 turn off trigger
+  // 取得 turn off trigger
   Trigger<> *get_turn_off_trigger() const { return this->turn_off_trigger_; }
+  
+  // 設定是否要覆寫關機行為
+  void set_override_turn_off(bool override) { this->override_turn_off_ = override; }
 
  protected:
   void control(const climate::ClimateCall &call) override;
@@ -65,8 +68,10 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
 
   void handle_response(std::vector<uint8_t> &response) override;
   
-  // 新增：turn off trigger
+  // turn off trigger
   Trigger<> *turn_off_trigger_{new Trigger<>()};
+  // 是否覆寫關機行為（有設定 on_turn_off 時會是 true）
+  bool override_turn_off_{false};
 };
 
 }  // namespace taixia
