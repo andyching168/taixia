@@ -37,8 +37,10 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   void set_supported_humidity(bool feature) { this->supported_humidity_ = feature; }
 
   void set_taixia_parent(TaiXia *parent) { this->parent_ = parent; }
+  // 新增：設定關機時的自訂 action callback
+  void set_turn_off_action(std::function<void()> &&f) { this->turn_off_action_ = f; }
 
- protected:
+ protected:  // <-- protected 關鍵字要在這裡
   void control(const climate::ClimateCall &call) override;
 
   TaiXia *parent_;
@@ -60,6 +62,9 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   bool update_status_();
 
   void handle_response(std::vector<uint8_t> &response) override;
+  
+  // 新增：關機 action callback（放在 protected 成員變數區）
+  optional<std::function<void()>> turn_off_action_{};
 };
 
 }  // namespace taixia
