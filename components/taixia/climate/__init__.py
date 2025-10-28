@@ -11,35 +11,38 @@ from esphome.const import (
     CONF_SUPPORTED_SWING_MODES,
     CONF_SUPPORTED_PRESETS
 )
+
 from esphome.components.climate import (
     ClimateFanMode,
     ClimatePreset,
     ClimateMode,
     ClimateSwingMode
 )
+
 from .. import taixia_ns, CONF_TAIXIA_ID, CONF_SA_ID, TaiXia
 from esphome import automation  # 新增這行
+
 DEFAULT_MIN_TEMPERATURE = 16.0
 DEFAULT_MAX_TEMPERATURE = 35.0
 DEFAULT_TEMPERATURE_STEP = 1.0
 CONF_SUPPORTED_HUMIDITY = "supported_humidity"
+CONF_ON_TURN_OFF = "on_turn_off"  # 新增這行
 
 CODEOWNERS = ["@tsunglung"]
-
 DEPENDENCIES = ["taixia"]
 
 TaiXiaClimate = taixia_ns.class_("TaiXiaClimate", cg.PollingComponent, climate.Climate)
 
 SUPPORTED_SWING_MODES_OPTIONS = {
-    "OFF": ClimateSwingMode.CLIMATE_SWING_OFF,  # always available
-    "VERTICAL": ClimateSwingMode.CLIMATE_SWING_VERTICAL,  # always available
+    "OFF": ClimateSwingMode.CLIMATE_SWING_OFF,
+    "VERTICAL": ClimateSwingMode.CLIMATE_SWING_VERTICAL,
     "HORIZONTAL": ClimateSwingMode.CLIMATE_SWING_HORIZONTAL,
     "BOTH": ClimateSwingMode.CLIMATE_SWING_BOTH,
 }
 
 SUPPORTED_CLIMATE_FAN_MODES_OPTIONS = {
-    "ON": ClimateFanMode.CLIMATE_FAN_ON,  # always available
-    "OFF": ClimateFanMode.CLIMATE_FAN_OFF,  # always available
+    "ON": ClimateFanMode.CLIMATE_FAN_ON,
+    "OFF": ClimateFanMode.CLIMATE_FAN_OFF,
     "AUTO": ClimateFanMode.CLIMATE_FAN_AUTO,
     "LOW": ClimateFanMode.CLIMATE_FAN_LOW,
     "MEDIUM": ClimateFanMode.CLIMATE_FAN_MEDIUM,
@@ -51,8 +54,8 @@ SUPPORTED_CLIMATE_FAN_MODES_OPTIONS = {
 }
 
 SUPPORTED_CLIMATE_MODES_OPTIONS = {
-    "OFF": ClimateMode.CLIMATE_MODE_OFF,  # always available
-    "AUTO": ClimateMode.CLIMATE_MODE_AUTO,  # always available
+    "OFF": ClimateMode.CLIMATE_MODE_OFF,
+    "AUTO": ClimateMode.CLIMATE_MODE_AUTO,
     "COOL": ClimateMode.CLIMATE_MODE_COOL,
     "HEAT": ClimateMode.CLIMATE_MODE_HEAT,
     "DRY": ClimateMode.CLIMATE_MODE_DRY,
@@ -76,7 +79,7 @@ OPTIONS_SWING_MODES = [
     "HORIZONTAL",
     "BOTH"
 ]
-CONF_ON_TURN_OFF = "on_turn_off"  # 新增這行
+
 CONFIG_SCHEMA = cv.All(
     climate.climate_schema(TaiXiaClimate).extend(
         {
@@ -98,27 +101,24 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(
                 cv.enum(SUPPORTED_CLIMATE_PRESET_OPTIONS, upper=True)
             ),
-            cv.Optional(CONF_ON_TURN_OFF): automation.validate_automation(single=True),  # 新增這行
-            cv.Optional(CONF_SUPPORTED_HUMIDITY, default=False): bool
+            cv.Optional(CONF_SUPPORTED_HUMIDITY, default=False): bool,
+            # 新增：支援 on_turn_off action
+            cv.Optional(CONF_ON_TURN_OFF): automation.validate_automation(single=True),
         }
     ).extend(cv.polling_component_schema("30s"))
 )
 
-
 def _validate_sa_id(config, sa_id):
     if sa_id not in [1, 14]:
         raise cv.Invalid("SA ID must be values 1 or 14")
-
     if sa_id == 14:
         if ((CONF_SUPPORTED_FAN_MODES in config) or
             (CONF_SUPPORTED_SWING_MODES in config) or
             (CONF_SUPPORTED_PRESETS in config)):
             raise cv.Invalid("There are some unnecessary configurations for ERV.")
 
-
 async def to_code(config):
     taixia = await cg.get_variable(config[CONF_TAIXIA_ID])
-
     var = cg.new_Pvariable(config[CONF_OUTPUT_ID])
     await cg.register_component(var, config)
     await climate.register_climate(var, config)
@@ -126,26 +126,36 @@ async def to_code(config):
     if CONF_SA_ID in config:
         _validate_sa_id(config, config[CONF_SA_ID])
         cg.add(var.set_sa_id(config[CONF_SA_ID]))
+
     if CONF_MAX_TEMPERATURE in config:
         cg.add(var.set_max_temperature(config[CONF_MAX_TEMPERATURE]))
+
     if CONF_MIN_TEMPERATURE in config:
         cg.add(var.set_min_temperature(config[CONF_MIN_TEMPERATURE]))
+
     if CONF_TEMPERATURE_STEP in config:
         cg.add(var.set_temperature_step(config[CONF_TEMPERATURE_STEP]))
+
     if CONF_SUPPORTED_MODES in config:
         cg.add(var.set_supported_modes(config[CONF_SUPPORTED_MODES]))
+
     if CONF_SUPPORTED_FAN_MODES in config:
         cg.add(var.set_supported_fan_modes(config[CONF_SUPPORTED_FAN_MODES]))
+
     if CONF_SUPPORTED_SWING_MODES in config:
         cg.add(var.set_supported_swing_modes(config[CONF_SUPPORTED_SWING_MODES]))
+
     if CONF_SUPPORTED_PRESETS in config:
         cg.add(var.set_supported_preset_modes(config[CONF_SUPPORTED_PRESETS]))
+
     if CONF_SUPPORTED_HUMIDITY in config:
         cg.add(var.set_supported_humidity(config[CONF_SUPPORTED_HUMIDITY]))
+
     # 新增：處理 on_turn_off action
     if CONF_ON_TURN_OFF in config:
         await automation.build_automation(
-            var.get_turn_off_trigger(), [], config[CONF_ON_TURN_OFF]
+            var.set_turn_off_action, [], config[CONF_ON_TURN_OFF]
         )
+
     cg.add(taixia.register_listener(var))
     cg.add(var.set_taixia_parent(taixia))
