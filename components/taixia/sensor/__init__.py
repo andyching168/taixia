@@ -536,6 +536,9 @@ async def to_code(config):
         if CONF_OPERATING_HOURS in config:
             sens = await sensor.new_sensor(config[CONF_OPERATING_HOURS])
             cg.add(var.set_operating_hours_sensor(sens))
+        if CONF_ERROR_CODE in config:
+            sens = await sensor.new_sensor(config[CONF_ERROR_CODE])
+            cg.add(var.set_error_code_sensor(sens))
         if CONF_PM_2_5 in config:
             sens = await sensor.new_sensor(config[CONF_PM_2_5])
             cg.add(var.set_pm_2_5_sensor(sens))
