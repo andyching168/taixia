@@ -9,7 +9,8 @@ static const char *const TAG = "taixia.climate";
 static const uint32_t ANTI_MILDEW_MIN_COOL_TIME_MS = 30UL * 60UL * 1000UL;
 static const uint32_t ANTI_MILDEW_FAN_TIME_MS = 30UL * 60UL * 1000UL;
 static const uint32_t ANTI_MILDEW_FAN_RESPONSE_SUPPRESS_MS = 15UL * 1000UL;
-static const uint32_t FAN_ONLY_POWER_CYCLE_DELAY_MS = 1500UL;
+static const uint32_t FAN_ONLY_POWER_CYCLE_DELAY_MS = 3000UL;
+static const uint8_t FAN_ONLY_RESTART_MAX_ATTEMPTS = 3;
 
 using namespace esphome::climate;
 
@@ -141,6 +142,9 @@ using namespace esphome::climate;
     this->pending_power_cycle_mode_ = CLIMATE_MODE_OFF;
     this->pending_power_cycle_at_ = 0;
     this->pending_power_cycle_step_ = 0;
+    this->fan_only_restart_active_ = false;
+    this->fan_only_restart_mode_ = CLIMATE_MODE_OFF;
+    this->fan_only_restart_attempts_ = 0;
     this->suppress_anti_mildew_fan_response_ = false;
     this->suppress_anti_mildew_fan_response_until_ = 0;
     this->clear_cool_mode_timer_();
@@ -186,7 +190,13 @@ using namespace esphome::climate;
   }
 
   void TaiXiaClimate::schedule_mode_after_power_cycle_(climate::ClimateMode mode) {
+    bool same_restart = this->fan_only_restart_active_ && this->fan_only_restart_mode_ == mode;
+    uint8_t attempts = same_restart ? this->fan_only_restart_attempts_ : 0;
+
     this->send_power_off_(false);
+    this->fan_only_restart_active_ = true;
+    this->fan_only_restart_mode_ = mode;
+    this->fan_only_restart_attempts_ = attempts;
     this->pending_mode_after_power_cycle_ = true;
     this->pending_power_cycle_mode_ = mode;
     this->pending_power_cycle_at_ = millis() + FAN_ONLY_POWER_CYCLE_DELAY_MS;
@@ -915,6 +925,28 @@ using namespace esphome::climate;
       this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
     else
       this->swing_mode = climate::CLIMATE_SWING_OFF;
+
+    if (this->fan_only_restart_active_ && this->mode == CLIMATE_MODE_FAN_ONLY &&
+        !this->pending_mode_after_power_cycle_) {
+      if (this->fan_only_restart_attempts_ < FAN_ONLY_RESTART_MAX_ATTEMPTS) {
+        this->fan_only_restart_attempts_++;
+        ESP_LOGW(
+          TAG,
+          "Climate still reports fan-only while trying to restore mode; retry %u/%u",
+          this->fan_only_restart_attempts_,
+          FAN_ONLY_RESTART_MAX_ATTEMPTS);
+        this->schedule_mode_after_power_cycle_(this->fan_only_restart_mode_);
+      } else {
+        ESP_LOGW(TAG, "Climate stayed in fan-only after retries; giving up automatic restart");
+        this->fan_only_restart_active_ = false;
+        this->fan_only_restart_mode_ = CLIMATE_MODE_OFF;
+        this->fan_only_restart_attempts_ = 0;
+      }
+    } else if (this->fan_only_restart_active_ && this->mode == this->fan_only_restart_mode_) {
+      this->fan_only_restart_active_ = false;
+      this->fan_only_restart_mode_ = CLIMATE_MODE_OFF;
+      this->fan_only_restart_attempts_ = 0;
+    }
 
     if (power_is_off) {
       this->cancel_anti_mildew_fan_();

@@ -103,6 +103,9 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   climate::ClimateMode pending_power_cycle_mode_{climate::CLIMATE_MODE_OFF};
   uint32_t pending_power_cycle_at_{0};
   uint8_t pending_power_cycle_step_{0};
+  bool fan_only_restart_active_{false};
+  climate::ClimateMode fan_only_restart_mode_{climate::CLIMATE_MODE_OFF};
+  uint8_t fan_only_restart_attempts_{0};
 };
 
 }  // namespace taixia
