@@ -79,6 +79,8 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   bool cool_mode_has_elapsed_(uint32_t duration) const;
   void start_anti_mildew_fan_();
   void cancel_anti_mildew_fan_();
+  void start_anti_mildew_fan_response_suppression_();
+  bool should_suppress_anti_mildew_fan_response_();
 
   void handle_response(std::vector<uint8_t> &response) override;
   
@@ -90,6 +92,8 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   uint32_t cool_mode_started_at_{0};
   bool anti_mildew_fan_pending_{false};
   uint32_t anti_mildew_turn_off_at_{0};
+  bool suppress_anti_mildew_fan_response_{false};
+  uint32_t suppress_anti_mildew_fan_response_until_{0};
 };
 
 }  // namespace taixia

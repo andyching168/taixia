@@ -8,6 +8,7 @@ namespace taixia {
 static const char *const TAG = "taixia.climate";
 static const uint32_t ANTI_MILDEW_MIN_COOL_TIME_MS = 30UL * 60UL * 1000UL;
 static const uint32_t ANTI_MILDEW_FAN_TIME_MS = 30UL * 60UL * 1000UL;
+static const uint32_t ANTI_MILDEW_FAN_RESPONSE_SUPPRESS_MS = 15UL * 1000UL;
 
 using namespace esphome::climate;
 
@@ -101,6 +102,8 @@ using namespace esphome::climate;
     this->mode = CLIMATE_MODE_OFF;
     this->action = CLIMATE_ACTION_OFF;
     this->cancel_anti_mildew_fan_();
+    this->suppress_anti_mildew_fan_response_ = false;
+    this->suppress_anti_mildew_fan_response_until_ = 0;
     this->clear_cool_mode_timer_();
   }
 
@@ -131,6 +134,8 @@ using namespace esphome::climate;
     this->action = CLIMATE_ACTION_FAN;
     this->anti_mildew_fan_pending_ = true;
     this->anti_mildew_turn_off_at_ = millis() + ANTI_MILDEW_FAN_TIME_MS;
+    this->suppress_anti_mildew_fan_response_ = false;
+    this->suppress_anti_mildew_fan_response_until_ = 0;
     this->clear_cool_mode_timer_();
     ESP_LOGD(TAG, "Starting anti mildew fan cycle before power off");
   }
@@ -138,6 +143,21 @@ using namespace esphome::climate;
   void TaiXiaClimate::cancel_anti_mildew_fan_() {
     this->anti_mildew_fan_pending_ = false;
     this->anti_mildew_turn_off_at_ = 0;
+  }
+
+  void TaiXiaClimate::start_anti_mildew_fan_response_suppression_() {
+    this->suppress_anti_mildew_fan_response_ = true;
+    this->suppress_anti_mildew_fan_response_until_ = millis() + ANTI_MILDEW_FAN_RESPONSE_SUPPRESS_MS;
+  }
+
+  bool TaiXiaClimate::should_suppress_anti_mildew_fan_response_() {
+    if (!this->suppress_anti_mildew_fan_response_)
+      return false;
+    if (static_cast<int32_t>(millis() - this->suppress_anti_mildew_fan_response_until_) < 0)
+      return true;
+    this->suppress_anti_mildew_fan_response_ = false;
+    this->suppress_anti_mildew_fan_response_until_ = 0;
+    return false;
   }
 
   void TaiXiaClimate::control(const climate::ClimateCall &call) {
@@ -150,6 +170,19 @@ using namespace esphome::climate;
 
     if (this->sa_id_ == 14)
       command[1] = SA_ID_ERV;
+
+    if (this->anti_mildew_fan_pending_ &&
+        (!call.get_mode().has_value() || *call.get_mode() != CLIMATE_MODE_OFF)) {
+      ESP_LOGD(TAG, "User command interrupted anti mildew fan cycle");
+      if (call.get_mode().has_value() && *call.get_mode() != CLIMATE_MODE_FAN_ONLY) {
+        this->send_power_off_();
+        this->start_anti_mildew_fan_response_suppression_();
+      } else {
+        if (!call.get_mode().has_value())
+          this->start_anti_mildew_fan_response_suppression_();
+        this->cancel_anti_mildew_fan_();
+      }
+    }
 
     if (call.get_mode().has_value()) {
         auto requested_mode = *call.get_mode();
@@ -185,7 +218,6 @@ using namespace esphome::climate;
             return;
         } else {
             uint8_t mode;
-            this->cancel_anti_mildew_fan_();
             this->mode = requested_mode;
             if (this->sa_id_ == 14)
               command[2] = WRITE | SERVICE_ID_ERV_STATUS;
@@ -619,8 +651,12 @@ using namespace esphome::climate;
               this->action = CLIMATE_ACTION_DRYING;
               break;
             case 2:
-              this->mode = CLIMATE_MODE_FAN_ONLY;
-              this->action = CLIMATE_ACTION_FAN;
+              if (this->should_suppress_anti_mildew_fan_response_()) {
+                ESP_LOGD(TAG, "Ignoring stale anti mildew fan mode response after user override");
+              } else {
+                this->mode = CLIMATE_MODE_FAN_ONLY;
+                this->action = CLIMATE_ACTION_FAN;
+              }
               break;
             case 3:
             default:
