@@ -341,10 +341,17 @@ using namespace esphome::climate;
       // this->parent_->send_cmd(command, buffer, 6);
     }
     this->publish_state();
-    if (this->parent_->get_version() < 3.0)
-      this->parent_->read_sa_status();
-    else
-      this->parent_->send(6, 0, 0, SERVICE_ID_READ_STATUS, 0xffff);
+    ESP_LOGV(
+      TAG,
+      "Control is %s",
+      (this->parent_->get_optimistic() ? "optimistic" : "pessimistic"));
+    if (!this->parent_->get_optimistic()) {
+      if (this->parent_->get_version() < 3.0) {
+        this->parent_->read_sa_status();
+      } else {
+        this->parent_->send(6, 0, 0, SERVICE_ID_READ_STATUS, 0xffff);
+      }
+    }
   }
 
   bool TaiXiaClimate::update_status_() {
@@ -399,6 +406,7 @@ using namespace esphome::climate;
   //    traits.set_supports_action(true);
 
       this->traits_.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
+      this->traits_.add_feature_flags(climate::CLIMATE_SUPPORTS_ACTION);
 
       if (this->supports_cool_)
         this->traits_.add_supported_mode(CLIMATE_MODE_COOL);
@@ -505,6 +513,7 @@ using namespace esphome::climate;
         //case SERVICE_ID_ERV_STATUS:
           if (get_u16(response, i + 1) != 1) {
               this->mode = CLIMATE_MODE_OFF;
+              this->action = CLIMATE_ACTION_OFF;
               mode = this->mode;
           }
           break;
@@ -513,15 +522,19 @@ using namespace esphome::climate;
           switch (response[i + 2]) {
             case 0:
               this->mode = CLIMATE_MODE_COOL;
+              this->action = CLIMATE_ACTION_COOLING;
               break;
             case 4:
               this->mode = CLIMATE_MODE_HEAT;
+              this->action = CLIMATE_ACTION_HEATING;
               break;
             case 1:
               this->mode = CLIMATE_MODE_DRY;
+              this->action = CLIMATE_ACTION_DRYING;
               break;
             case 2:
               this->mode = CLIMATE_MODE_FAN_ONLY;
+              this->action = CLIMATE_ACTION_FAN;
               break;
             case 3:
             default:
@@ -529,8 +542,10 @@ using namespace esphome::climate;
               break;
           }
 
-          if (mode == CLIMATE_MODE_OFF)
+          if (mode == CLIMATE_MODE_OFF) {
             this->mode = CLIMATE_MODE_OFF;
+            this->action = CLIMATE_ACTION_OFF;
+          }
 
         break;
         case SERVICE_ID_CLIMATE_FAN_SPEED:
