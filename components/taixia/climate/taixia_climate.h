@@ -73,6 +73,12 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
 
   void reset_state_();
   bool update_status_();
+  void send_power_off_();
+  void start_cool_mode_timer_();
+  void clear_cool_mode_timer_();
+  bool cool_mode_has_elapsed_(uint32_t duration) const;
+  void start_anti_mildew_fan_();
+  void cancel_anti_mildew_fan_();
 
   void handle_response(std::vector<uint8_t> &response) override;
   
@@ -80,6 +86,10 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   Trigger<> *turn_off_trigger_{new Trigger<>()};
   // 是否覆寫關機行為（有設定 on_turn_off 時會是 true）
   bool override_turn_off_{false};
+  bool cool_mode_timer_active_{false};
+  uint32_t cool_mode_started_at_{0};
+  bool anti_mildew_fan_pending_{false};
+  uint32_t anti_mildew_turn_off_at_{0};
 };
 
 }  // namespace taixia

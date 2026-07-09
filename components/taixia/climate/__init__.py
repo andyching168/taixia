@@ -155,7 +155,7 @@ async def to_code(config):
         await automation.build_automation(
             var.get_turn_off_trigger(), [], config[CONF_ON_TURN_OFF]
         )
+        cg.add(var.set_override_turn_off(True))
 
     cg.add(taixia.register_listener(var))
     cg.add(var.set_taixia_parent(taixia))
-    cg.add(var.set_override_turn_off(True))
