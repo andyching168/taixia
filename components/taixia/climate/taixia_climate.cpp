@@ -9,6 +9,7 @@ static const char *const TAG = "taixia.climate";
 static const uint32_t ANTI_MILDEW_MIN_COOL_TIME_MS = 30UL * 60UL * 1000UL;
 static const uint32_t ANTI_MILDEW_FAN_TIME_MS = 30UL * 60UL * 1000UL;
 static const uint32_t ANTI_MILDEW_FAN_RESPONSE_SUPPRESS_MS = 15UL * 1000UL;
+static const uint32_t FAN_ONLY_POWER_CYCLE_DELAY_MS = 1500UL;
 
 using namespace esphome::climate;
 
@@ -76,6 +77,24 @@ using namespace esphome::climate;
   }
 
   void TaiXiaClimate::loop() {
+    if (this->pending_mode_after_power_cycle_ &&
+        static_cast<int32_t>(millis() - this->pending_power_cycle_at_) >= 0) {
+      ESP_LOGD(TAG, "Power cycle finished, restoring requested climate mode");
+      auto mode = this->pending_power_cycle_mode_;
+      this->pending_mode_after_power_cycle_ = false;
+      this->pending_power_cycle_mode_ = CLIMATE_MODE_OFF;
+      this->pending_power_cycle_at_ = 0;
+      this->send_power_on_mode_(mode);
+      this->mode = mode;
+      if (this->mode == CLIMATE_MODE_COOL) {
+        this->action = CLIMATE_ACTION_COOLING;
+        this->start_cool_mode_timer_();
+      } else {
+        this->clear_cool_mode_timer_();
+      }
+      this->publish_state();
+    }
+
     if (this->anti_mildew_fan_pending_ &&
         static_cast<int32_t>(millis() - this->anti_mildew_turn_off_at_) >= 0) {
       ESP_LOGD(TAG, "Anti mildew fan cycle finished, powering off");
@@ -85,6 +104,10 @@ using namespace esphome::climate;
   }
 
   void TaiXiaClimate::send_power_off_() {
+    this->send_power_off_(true);
+  }
+
+  void TaiXiaClimate::send_power_off_(bool wait_response) {
     uint8_t command[6] = {0x06, SA_ID_CLIMATE, 0x00, 0x00, 0x00, 0x00};
     uint8_t buffer[6];
 
@@ -97,7 +120,10 @@ using namespace esphome::climate;
     command[4] = 0x00;
     command[5] = this->parent_->checksum(command, 5);
     this->parent_->power_switch(false);
-    this->parent_->send_cmd(command, buffer, 6);
+    if (wait_response)
+      this->parent_->send_cmd(command, buffer, 6);
+    else
+      this->parent_->send(6, 0, command[1], command[2], 0x0000);
 
     this->mode = CLIMATE_MODE_OFF;
     this->action = CLIMATE_ACTION_OFF;
@@ -105,6 +131,48 @@ using namespace esphome::climate;
     this->suppress_anti_mildew_fan_response_ = false;
     this->suppress_anti_mildew_fan_response_until_ = 0;
     this->clear_cool_mode_timer_();
+  }
+
+  void TaiXiaClimate::send_power_on_mode_(climate::ClimateMode mode) {
+    uint8_t sa_id = this->sa_id_ == 14 ? SA_ID_ERV : SA_ID_CLIMATE;
+    uint8_t status_service = this->sa_id_ == 14 ? SERVICE_ID_ERV_STATUS : SERVICE_ID_CLIMATE_STATUS;
+    uint8_t mode_service = this->sa_id_ == 14 ? SERVICE_ID_ERV_MODE : SERVICE_ID_CLIMATE_MODE;
+    uint8_t mode_value;
+
+    switch (mode) {
+      case CLIMATE_MODE_COOL:
+        mode_value = 0;
+        break;
+      case CLIMATE_MODE_HEAT:
+        mode_value = 4;
+        break;
+      case CLIMATE_MODE_DRY:
+        mode_value = 1;
+        break;
+      case CLIMATE_MODE_FAN_ONLY:
+        mode_value = 2;
+        break;
+      default:
+        mode_value = 3;
+        break;
+    }
+
+    this->parent_->power_switch(true);
+    this->parent_->send(6, 0, sa_id, WRITE | status_service, 0x0001);
+    this->parent_->send(6, 0, sa_id, WRITE | mode_service, mode_value);
+  }
+
+  bool TaiXiaClimate::should_restart_from_fan_only_(climate::ClimateMode requested_mode) const {
+    return this->sa_id_ != 14 && this->mode == CLIMATE_MODE_FAN_ONLY && requested_mode != CLIMATE_MODE_FAN_ONLY &&
+           requested_mode != CLIMATE_MODE_OFF;
+  }
+
+  void TaiXiaClimate::schedule_mode_after_power_cycle_(climate::ClimateMode mode) {
+    this->pending_mode_after_power_cycle_ = true;
+    this->pending_power_cycle_mode_ = mode;
+    this->pending_power_cycle_at_ = millis() + FAN_ONLY_POWER_CYCLE_DELAY_MS;
+    this->send_power_off_(false);
+    this->start_anti_mildew_fan_response_suppression_();
   }
 
   void TaiXiaClimate::start_cool_mode_timer_() {
@@ -171,12 +239,24 @@ using namespace esphome::climate;
     if (this->sa_id_ == 14)
       command[1] = SA_ID_ERV;
 
+    if (call.get_mode().has_value() && this->should_restart_from_fan_only_(*call.get_mode())) {
+      ESP_LOGD(TAG, "Restarting climate before leaving fan-only mode");
+      this->schedule_mode_after_power_cycle_(*call.get_mode());
+      this->mode = *call.get_mode();
+      this->action = this->mode == CLIMATE_MODE_COOL ? CLIMATE_ACTION_COOLING : CLIMATE_ACTION_IDLE;
+      this->publish_state();
+      return;
+    }
+
     if (this->anti_mildew_fan_pending_ &&
         (!call.get_mode().has_value() || *call.get_mode() != CLIMATE_MODE_OFF)) {
       ESP_LOGD(TAG, "User command interrupted anti mildew fan cycle");
       if (call.get_mode().has_value() && *call.get_mode() != CLIMATE_MODE_FAN_ONLY) {
-        this->send_power_off_();
-        this->start_anti_mildew_fan_response_suppression_();
+        this->schedule_mode_after_power_cycle_(*call.get_mode());
+        this->mode = *call.get_mode();
+        this->action = this->mode == CLIMATE_MODE_COOL ? CLIMATE_ACTION_COOLING : CLIMATE_ACTION_IDLE;
+        this->publish_state();
+        return;
       } else {
         if (!call.get_mode().has_value())
           this->start_anti_mildew_fan_response_suppression_();
