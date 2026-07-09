@@ -79,18 +79,27 @@ using namespace esphome::climate;
   void TaiXiaClimate::loop() {
     if (this->pending_mode_after_power_cycle_ &&
         static_cast<int32_t>(millis() - this->pending_power_cycle_at_) >= 0) {
-      ESP_LOGD(TAG, "Power cycle finished, restoring requested climate mode");
       auto mode = this->pending_power_cycle_mode_;
-      this->pending_mode_after_power_cycle_ = false;
-      this->pending_power_cycle_mode_ = CLIMATE_MODE_OFF;
-      this->pending_power_cycle_at_ = 0;
-      this->send_power_on_mode_(mode);
-      this->mode = mode;
-      if (this->mode == CLIMATE_MODE_COOL) {
-        this->action = CLIMATE_ACTION_COOLING;
-        this->start_cool_mode_timer_();
+
+      if (this->pending_power_cycle_step_ == 1) {
+        ESP_LOGD(TAG, "Power cycle step 1 finished, powering on before restoring mode");
+        this->send_power_on_();
+        this->pending_power_cycle_step_ = 2;
+        this->pending_power_cycle_at_ = millis() + FAN_ONLY_POWER_CYCLE_DELAY_MS;
       } else {
-        this->clear_cool_mode_timer_();
+        ESP_LOGD(TAG, "Power cycle step 2 finished, restoring requested climate mode");
+        this->pending_mode_after_power_cycle_ = false;
+        this->pending_power_cycle_mode_ = CLIMATE_MODE_OFF;
+        this->pending_power_cycle_at_ = 0;
+        this->pending_power_cycle_step_ = 0;
+        this->send_mode_(mode);
+        this->mode = mode;
+        if (this->mode == CLIMATE_MODE_COOL) {
+          this->action = CLIMATE_ACTION_COOLING;
+          this->start_cool_mode_timer_();
+        } else {
+          this->clear_cool_mode_timer_();
+        }
       }
       this->publish_state();
     }
@@ -128,14 +137,25 @@ using namespace esphome::climate;
     this->mode = CLIMATE_MODE_OFF;
     this->action = CLIMATE_ACTION_OFF;
     this->cancel_anti_mildew_fan_();
+    this->pending_mode_after_power_cycle_ = false;
+    this->pending_power_cycle_mode_ = CLIMATE_MODE_OFF;
+    this->pending_power_cycle_at_ = 0;
+    this->pending_power_cycle_step_ = 0;
     this->suppress_anti_mildew_fan_response_ = false;
     this->suppress_anti_mildew_fan_response_until_ = 0;
     this->clear_cool_mode_timer_();
   }
 
-  void TaiXiaClimate::send_power_on_mode_(climate::ClimateMode mode) {
+  void TaiXiaClimate::send_power_on_() {
     uint8_t sa_id = this->sa_id_ == 14 ? SA_ID_ERV : SA_ID_CLIMATE;
     uint8_t status_service = this->sa_id_ == 14 ? SERVICE_ID_ERV_STATUS : SERVICE_ID_CLIMATE_STATUS;
+
+    this->parent_->power_switch(true);
+    this->parent_->send(6, 0, sa_id, WRITE | status_service, 0x0001);
+  }
+
+  void TaiXiaClimate::send_mode_(climate::ClimateMode mode) {
+    uint8_t sa_id = this->sa_id_ == 14 ? SA_ID_ERV : SA_ID_CLIMATE;
     uint8_t mode_service = this->sa_id_ == 14 ? SERVICE_ID_ERV_MODE : SERVICE_ID_CLIMATE_MODE;
     uint8_t mode_value;
 
@@ -157,8 +177,6 @@ using namespace esphome::climate;
         break;
     }
 
-    this->parent_->power_switch(true);
-    this->parent_->send(6, 0, sa_id, WRITE | status_service, 0x0001);
     this->parent_->send(6, 0, sa_id, WRITE | mode_service, mode_value);
   }
 
@@ -168,10 +186,11 @@ using namespace esphome::climate;
   }
 
   void TaiXiaClimate::schedule_mode_after_power_cycle_(climate::ClimateMode mode) {
+    this->send_power_off_(false);
     this->pending_mode_after_power_cycle_ = true;
     this->pending_power_cycle_mode_ = mode;
     this->pending_power_cycle_at_ = millis() + FAN_ONLY_POWER_CYCLE_DELAY_MS;
-    this->send_power_off_(false);
+    this->pending_power_cycle_step_ = 1;
     this->start_anti_mildew_fan_response_suppression_();
   }
 

@@ -75,7 +75,8 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   bool update_status_();
   void send_power_off_();
   void send_power_off_(bool wait_response);
-  void send_power_on_mode_(climate::ClimateMode mode);
+  void send_power_on_();
+  void send_mode_(climate::ClimateMode mode);
   bool should_restart_from_fan_only_(climate::ClimateMode requested_mode) const;
   void schedule_mode_after_power_cycle_(climate::ClimateMode mode);
   void start_cool_mode_timer_();
@@ -101,6 +102,7 @@ class TaiXiaClimate : public climate::Climate, public TaiXiaListener, public Pol
   bool pending_mode_after_power_cycle_{false};
   climate::ClimateMode pending_power_cycle_mode_{climate::CLIMATE_MODE_OFF};
   uint32_t pending_power_cycle_at_{0};
+  uint8_t pending_power_cycle_step_{0};
 };
 
 }  // namespace taixia
