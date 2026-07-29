@@ -182,11 +182,13 @@ using namespace esphome::climate;
     }
 
     this->parent_->send(6, 0, sa_id, WRITE | mode_service, mode_value);
+    if (this->sa_id_ != 14)
+      this->fan_only_mode_latched_ = mode == CLIMATE_MODE_FAN_ONLY;
   }
 
   bool TaiXiaClimate::should_restart_from_fan_only_(climate::ClimateMode requested_mode) const {
-    return this->sa_id_ != 14 && this->mode == CLIMATE_MODE_FAN_ONLY && requested_mode != CLIMATE_MODE_FAN_ONLY &&
-           requested_mode != CLIMATE_MODE_OFF;
+    return this->sa_id_ != 14 && (this->mode == CLIMATE_MODE_FAN_ONLY || this->fan_only_mode_latched_) &&
+           requested_mode != CLIMATE_MODE_FAN_ONLY && requested_mode != CLIMATE_MODE_OFF;
   }
 
   void TaiXiaClimate::schedule_mode_after_power_cycle_(climate::ClimateMode mode) {
@@ -229,6 +231,7 @@ using namespace esphome::climate;
 
     this->mode = CLIMATE_MODE_FAN_ONLY;
     this->action = CLIMATE_ACTION_FAN;
+    this->fan_only_mode_latched_ = true;
     this->anti_mildew_fan_pending_ = true;
     this->anti_mildew_turn_off_at_ = millis() + ANTI_MILDEW_FAN_TIME_MS;
     this->suppress_anti_mildew_fan_response_ = false;
@@ -353,6 +356,8 @@ using namespace esphome::climate;
                 mode = 3;
                 break;
             }
+            if (this->sa_id_ != 14)
+              this->fan_only_mode_latched_ = this->mode == CLIMATE_MODE_FAN_ONLY;
             this->parent_->power_switch(true);
             if (this->sa_id_ == 14)
               command[2] = WRITE | SERVICE_ID_ERV_MODE;
@@ -746,6 +751,8 @@ using namespace esphome::climate;
           break;
         case SERVICE_ID_CLIMATE_MODE:
         //case SERVICE_ID_FAN_MODE:
+          if (this->sa_id_ != 14)
+            this->fan_only_mode_latched_ = response[i + 2] == 2;
           switch (response[i + 2]) {
             case 0:
               this->mode = CLIMATE_MODE_COOL;
@@ -926,7 +933,7 @@ using namespace esphome::climate;
     else
       this->swing_mode = climate::CLIMATE_SWING_OFF;
 
-    if (this->fan_only_restart_active_ && this->mode == CLIMATE_MODE_FAN_ONLY &&
+    if (this->fan_only_restart_active_ && this->fan_only_mode_latched_ &&
         !this->pending_mode_after_power_cycle_) {
       if (this->fan_only_restart_attempts_ < FAN_ONLY_RESTART_MAX_ATTEMPTS) {
         this->fan_only_restart_attempts_++;
@@ -942,7 +949,8 @@ using namespace esphome::climate;
         this->fan_only_restart_mode_ = CLIMATE_MODE_OFF;
         this->fan_only_restart_attempts_ = 0;
       }
-    } else if (this->fan_only_restart_active_ && this->mode == this->fan_only_restart_mode_) {
+    } else if (this->fan_only_restart_active_ && !this->fan_only_mode_latched_ &&
+               this->mode == this->fan_only_restart_mode_) {
       this->fan_only_restart_active_ = false;
       this->fan_only_restart_mode_ = CLIMATE_MODE_OFF;
       this->fan_only_restart_attempts_ = 0;
