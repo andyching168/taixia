@@ -66,7 +66,7 @@ static const uint8_t RESPONSE_LENGTH = 255;
     this->send(6, 0, 0x00, SERVICE_ID_READ_VERSION, 0xFFFF);
     this->readline(false);
 
-    if ((this->buffer_[0] >= 0x0) && (this->buffer_[1] == 0x0) && (this->buffer_[2] == SERVICE_ID_READ_VERSION)) {
+    if (this->buffer_.size() >= 5 && this->buffer_[1] == 0x0 && this->buffer_[2] == SERVICE_ID_READ_VERSION) {
       if (this->version_textsensor_ != nullptr) {
         std::string version;
         version = format_hex_pretty(this->buffer_[3]) + "." + format_hex_pretty(this->buffer_[4]);
@@ -81,7 +81,7 @@ static const uint8_t RESPONSE_LENGTH = 255;
     }
     this->readline(false);
 
-    if ((this->buffer_[0] >= 0x0) && (this->buffer_[1] == 0x0) && (this->buffer_[2] == SERVICE_ID_READ_SA_ID)) {
+    if (this->buffer_.size() >= 5 && this->buffer_[1] == 0x0 && this->buffer_[2] == SERVICE_ID_READ_SA_ID) {
       if (this->sa_id_textsensor_ != nullptr) {
         std::string sa_id;
         sa_id = format_hex_pretty(this->buffer_[3]) + format_hex_pretty(this->buffer_[4]);
@@ -99,13 +99,15 @@ static const uint8_t RESPONSE_LENGTH = 255;
     }
     this->readline(false);
 
-    if ((this->buffer_[0] >= 0x0) && (this->buffer_[1] == 0x0) && (this->buffer_[2] == SERVICE_ID_READ_BRAND)) {
+    if (this->buffer_.size() >= 5 && this->buffer_[1] == 0x0 && this->buffer_[2] == SERVICE_ID_READ_BRAND) {
       std::string brand;
       for (i = 3; i < this->buffer_[0]; i++) {
-        if (this->buffer_[i] != 0x0) {
-          brand = brand + str_sprintf("%c", this->buffer_[i]);
-        } else {
+        if (this->buffer_[i] == 0x0) {
           break;
+        }
+        // 只收可列印 ASCII：非 UTF-8 位元組會讓 HA 的 API 解析直接失敗
+        if (this->buffer_[i] >= 0x20 && this->buffer_[i] < 0x7F) {
+          brand += static_cast<char>(this->buffer_[i]);
         }
       }
       if (this->brand_textsensor_ != nullptr) {
@@ -120,13 +122,15 @@ static const uint8_t RESPONSE_LENGTH = 255;
     }
     this->readline(false);
 
-    if ((this->buffer_[0] >= 0x0) && (this->buffer_[1] == 0x0) && (this->buffer_[2] == SERVICE_ID_READ_MODEL)) {
+    if (this->buffer_.size() >= 5 && this->buffer_[1] == 0x0 && this->buffer_[2] == SERVICE_ID_READ_MODEL) {
       std::string model;
       for (i = 3; i < this->buffer_[0]; i++) {
-        if (this->buffer_[i] != 0x0) {
-          model = model + str_sprintf("%c", this->buffer_[i]);
-        } else {
+        if (this->buffer_[i] == 0x0) {
           break;
+        }
+        // 只收可列印 ASCII：非 UTF-8 位元組會讓 HA 的 API 解析直接失敗
+        if (this->buffer_[i] >= 0x20 && this->buffer_[i] < 0x7F) {
+          model += static_cast<char>(this->buffer_[i]);
         }
       }
       if (this->model_textsensor_ != nullptr) {
@@ -140,6 +144,12 @@ static const uint8_t RESPONSE_LENGTH = 255;
       delayMicroseconds(this->response_time_);
     }
     this->readline(false);
+
+    if (this->buffer_.size() < 6) {
+      // 服務清單回應太短，直接放棄這一輪，不要拿越界資料算 CRC
+      this->buffer_.clear();
+      return;
+    }
 
     uint8_t len = this->buffer_[0];
     uint8_t crc = 0;
@@ -181,23 +191,26 @@ static const uint8_t RESPONSE_LENGTH = 255;
     this->readline(false);
 
 //    uint8_t crc = this->checksum(this->buffer_, this->buffer_[0] - 1);
-    if ((this->buffer_[0] >= 0x0) && (this->buffer_[1] == 0x0) && (this->buffer_[2] == SERVICE_ID_REGISTER)) {
+    if (this->buffer_.size() >= 9 && this->buffer_[1] == 0x0 && this->buffer_[2] == SERVICE_ID_REGISTER) {
 
       std::string brand;
       for (i = 8; i < this->buffer_[0]; i++) {
-        if (this->buffer_[i] != 0x0) {
-          brand = brand + str_sprintf("%c", this->buffer_[i]);
-        } else {
+        if (this->buffer_[i] == 0x0) {
           break;
+        }
+        // 只收可列印 ASCII：非 UTF-8 位元組會讓 HA 的 API 解析直接失敗
+        if (this->buffer_[i] >= 0x20 && this->buffer_[i] < 0x7F) {
+          brand += static_cast<char>(this->buffer_[i]);
         }
       }
 
       std::string model;
       for (j = i + 1; j < this->buffer_[0]; j++) {
-        if (this->buffer_[j] != 0x0) {
-          model = model + str_sprintf("%c", this->buffer_[j]);
-        } else {
+        if (this->buffer_[j] == 0x0) {
           break;
+        }
+        if (this->buffer_[j] >= 0x20 && this->buffer_[j] < 0x7F) {
+          model += static_cast<char>(this->buffer_[j]);
         }
       }
 
@@ -397,29 +410,49 @@ static const uint8_t RESPONSE_LENGTH = 255;
   }
 
   void TaiXia::readline(bool handle_response) {
-      uint8_t c, len;
+      uint8_t c = 0;
       uint8_t response[255];
-      read_byte(&c);
+
+      // 沒有資料就直接返回，不要用未初始化的 c 去推算長度
+      if (!this->read_byte(&c)) {
+        this->len_ = 0;
+        if (handle_response)
+          this->buffer_.clear();
+        return;
+      }
 
       this->len_ = c;
-      this->buffer_.push_back(c);
 
-      len = this->len_ - 1;
+      uint8_t len = 0;
+      if (c > 1)
+        len = c - 1;
       if ((this->max_length_ > 6) && (len >= this->max_length_))
           len = this->max_length_;
 
-      // wait for data
-      read_array(response, len);
+      // 必須收到完整 frame 才使用；timeout / 短包一律丟棄
+      if (len > 0 && !this->read_array(response, len)) {
+        this->len_ = 0;
+        this->buffer_.clear();
+        return;
+      }
+
+      this->buffer_.push_back(c);
 
       for (uint8_t i = 0; i < len; i++) {
         this->buffer_.push_back(response[i]);
       }
 
+      // 讓長度位元組永遠等於實際內容長度，避免下游用 buffer_[0] 越界
+      if (!this->buffer_.empty())
+        this->buffer_[0] = static_cast<uint8_t>(this->buffer_.size() - 1);
+
       if (handle_response) {
-        auto crc = this->checksum(response, len - 1) ^ (len + 1);
-        if (crc == response[len - 1]) {
-          for (auto &listener : this->listeners_)
-            listener->on_response(this->sa_id_, this->buffer_);
+        if (len > 0) {
+          auto crc = this->checksum(response, len - 1) ^ (len + 1);
+          if (crc == response[len - 1]) {
+            for (auto &listener : this->listeners_)
+              listener->on_response(this->sa_id_, this->buffer_);
+          }
         }
         this->buffer_.clear();
       }
@@ -466,6 +499,9 @@ static const uint8_t RESPONSE_LENGTH = 255;
   void TaiXiaListener::on_response(uint16_t sa_id, std::vector<uint8_t> &response) {
 //    if ((this->sa_id_ != 0xffff) && (this->sa_id_ != sa_id))
 //      return;
+    // 太短的回應不處理：下游會用 response[0] - 3 當迴圈上界，短包會 underflow 變成越界讀取
+    if (response.size() < 6)
+      return;
     this->handle_response(response);
   }
 
