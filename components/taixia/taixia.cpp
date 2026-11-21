@@ -1,4 +1,5 @@
 #include "esphome/core/helpers.h"
+#include "esphome/core/alloc_helpers.h"  // format_hex_pretty() moved here in ESPHome 2026.11
 #include "esphome/core/log.h"
 #include "taixia.h"
 

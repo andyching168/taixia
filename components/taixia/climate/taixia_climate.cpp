@@ -54,6 +54,23 @@ using namespace esphome::climate;
   }
 
   void TaiXiaClimate::setup() {
+    // ESPHome 2026.11 moved custom preset support from ClimateTraits to Climate
+    // (traits only carries a pointer to this list now), so fill it once here,
+    // before restore_state_() has to match a stored custom preset.
+    std::vector<const char *> custom_presets;
+    if (this->preset_modes_ >= 1) {
+      if (this->preset_modes_ & 1 << CLIMATE_PRESET_AIR_DETECT)
+        custom_presets.push_back(Constants::AIR_DETECT);
+      if (this->preset_modes_ & 1 << CLIMATE_PRESET_ANTI_MILDEW)
+        custom_presets.push_back(Constants::ANTI_MILDEW);
+      if (this->preset_modes_ & 1 << CLIMATE_PRESET_SELF_CLEAN)
+        custom_presets.push_back(Constants::SELF_CLEAN);
+      if (this->preset_modes_ & 1 << CLIMATE_PRESET_BODY_MOTION)
+        custom_presets.push_back(Constants::BODY_MOTION);
+    }
+    if (!custom_presets.empty())
+      this->set_supported_custom_presets(custom_presets);
+
     // restore set points
     auto restore = this->restore_state_();
     if (restore.has_value()) {
@@ -692,14 +709,8 @@ using namespace esphome::climate;
         if (this->preset_modes_ & 1 << CLIMATE_PRESET_ACTIVITY)
           this->traits_.add_supported_preset(CLIMATE_PRESET_ACTIVITY);
 
-        if (this->preset_modes_ & 1 << CLIMATE_PRESET_AIR_DETECT)
-          this->traits_.set_supported_custom_presets({Constants::AIR_DETECT});
-        if (this->preset_modes_ & 1 << CLIMATE_PRESET_ANTI_MILDEW)
-          this->traits_.set_supported_custom_presets({Constants::ANTI_MILDEW});
-        if (this->preset_modes_ & 1 << CLIMATE_PRESET_SELF_CLEAN)
-          this->traits_.set_supported_custom_presets({Constants::SELF_CLEAN});
-        if (this->preset_modes_ & 1 << CLIMATE_PRESET_BODY_MOTION)
-          this->traits_.set_supported_custom_presets({Constants::BODY_MOTION});
+        // NOTE: custom presets are registered on the Climate entity in setup()
+        // (ESPHome 2026.11: ClimateTraits no longer owns them).
       }
 
       this->traits_.set_visual_min_temperature(this->min_temp_);
